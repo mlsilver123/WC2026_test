@@ -212,11 +212,12 @@ h2.page-title{font-size:1.2rem; font-weight:800; margin-bottom:.85rem;}
 
 // ---- SCORING CONFIG (single source of truth; Scoring tab renders from this) ----
 const SCORING = {
-  goal:        { GK: 6, DEF: 6, MID: 5, FWD: 4 },
+  goal:        { GK: 10, DEF: 6, MID: 5, FWD: 4 },
   assist:      3,
   appearance:  1,      // played 1-59 minutes
   played60:    2,      // played 60+ minutes
   cleanSheet:  { GK: 4, DEF: 4, MID: 1, FWD: 0 }, // requires 60+ min, team conceded 0
+  penSave:     2,      // penalty saved by goalkeeper (in-play, not shootout)
   yellow:     -1,
   red:        -3,
   ownGoal:    -2,
@@ -274,7 +275,7 @@ function eligibleUnderdog(code) { return TEAMS[code].rank >= 40; }
 // players; appearance/minutes filled to plausible values for squad depth.
 // m(round, goals, assists, minutes, opts) helper to keep data compact.
 function m(r, g = 0, a = 0, min = 90, opts = {}) {
-  return Object.assign({ r, g, a, min, cs: false, yc: 0, rc: 0, og: 0, pm: 0 }, opts);
+  return Object.assign({ r, g, a, min, cs: false, yc: 0, rc: 0, og: 0, pm: 0, ps: 0 }, opts);
 }
 
 const PLAYERS = [
@@ -432,7 +433,7 @@ const PLAYERS = [
   { id: 'pol-zielinski', name: 'Piotr Zieliński', team: 'POL', pos: 'MID', matches: [
     m('group',0,0,90),m('group',0,1,90),m('r16',0,0,79) ] },
   { id: 'pol-szczesny', name: 'Wojciech Szczęsny', team: 'POL', pos: 'GK', matches: [
-    m('group',0,0,90,{cs:true}),m('group',0,0,90,{cs:true}),m('r16',0,0,90) ] },
+    m('group',0,0,90,{cs:true}),m('group',0,0,90,{cs:true,ps:1}),m('group',0,0,90,{ps:1}),m('r16',0,0,90) ] },
 
   // ---------------- SENEGAL (R16) rank 18 ----------------
   { id: 'sen-dia', name: 'Boulaye Dia', team: 'SEN', pos: 'FWD', matches: [
@@ -619,6 +620,7 @@ function matchPoints(player, line) {
   if (line.min >= 60) { pts += s.played60; parts.push({ label: `60+ min +${s.played60}`, v: s.played60, sign: 1 }); }
   else if (line.min >= 1) { pts += s.appearance; parts.push({ label: `Appearance +${s.appearance}`, v: s.appearance, sign: 1 }); }
   if (line.cs && line.min >= 60 && s.cleanSheet[player.pos] > 0) { const v = s.cleanSheet[player.pos]; pts += v; parts.push({ label: `Clean sheet +${v}`, v, sign: 1 }); }
+  if (line.ps) { const v = s.penSave * line.ps; pts += v; parts.push({ label: `Pen save +${s.penSave}${line.ps > 1 ? ' ×' + line.ps : ''}`, v, sign: 1 }); }
   if (line.yc) { const v = s.yellow * line.yc; pts += v; parts.push({ label: `Yellow ${v}`, v, sign: -1 }); }
   if (line.rc) { const v = s.red * line.rc; pts += v; parts.push({ label: `Red ${v}`, v, sign: -1 }); }
   if (line.og) { const v = s.ownGoal * line.og; pts += v; parts.push({ label: `Own goal ${v}`, v, sign: -1 }); }
@@ -642,6 +644,7 @@ function playerCategories(player) {
     if (l.a) c.assists += s.assist * l.a;
     if (l.min >= 60) c.minutes += s.played60; else if (l.min >= 1) c.minutes += s.appearance;
     if (l.cs && l.min >= 60 && s.cleanSheet[player.pos] > 0) c.clean += s.cleanSheet[player.pos];
+    if (l.ps) c.clean += s.penSave * l.ps;
     if (l.yc) c.deductions += s.yellow * l.yc;
     if (l.rc) c.deductions += s.red * l.rc;
     if (l.og) c.deductions += s.ownGoal * l.og;
@@ -970,7 +973,7 @@ function playerCard(pl,pk){
   // ledger
   const ledger=pl.matches.map(line=>{
     const {pts,parts}=matchPoints(pl,line);
-    const chips=parts.map(pt=>{ let cls='chip'; if(pt.label.startsWith('Goal'))cls+=' goal'; else if(pt.label.startsWith('Assist'))cls+=' assist'; else if(pt.label.startsWith('Clean'))cls+=' cs'; else if(pt.sign<0)cls+=' neg'; return `<span class="${cls}">${pt.label}</span>`; }).join('');
+    const chips=parts.map(pt=>{ let cls='chip'; if(pt.label.startsWith('Goal'))cls+=' goal'; else if(pt.label.startsWith('Assist'))cls+=' assist'; else if(pt.label.startsWith('Clean')||pt.label.startsWith('Pen save'))cls+=' cs'; else if(pt.sign<0)cls+=' neg'; return `<span class="${cls}">${pt.label}</span>`; }).join('');
     const knock=line.r!=='group';
     return `<div class="ledger-row"><span class="ledger-rnd ${knock?'knock':''}">${ROUND_LABEL[line.r]}</span><div class="chips">${chips}</div><span class="ledger-pts">${pts}</span></div>`;
   }).join('');
@@ -1025,6 +1028,10 @@ function viewScoring(){
     <div class="section-h">Clean sheets (60+ min, team concedes 0)</div>
     <div class="rubric-grid">
       ${row('Goalkeeper / defender',s.cleanSheet.GK)}${row('Midfielder',s.cleanSheet.MID)}
+    </div>
+    <div class="section-h">Goalkeeping</div>
+    <div class="rubric-grid">
+      ${row('Penalty saved (in-play)',s.penSave)}
     </div>
     <div class="section-h">Deductions</div>
     <div class="rubric-grid">
